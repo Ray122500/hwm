@@ -4,7 +4,7 @@
 
 ## 在线试玩
 
-部署在 Vercel：`<部署后把 xxx.vercel.app 填到这里>`
+部署在 Vercel：https://hwm-tawny.vercel.app
 
 ## 功能
 
