@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>扫雷 · Minesweeper</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  body {
+    font-family: "Segoe UI", "Microsoft YaHei", sans-serif;
+    background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+    color: #fff;
+  }
+  h1 { font-size: 28px; margin-bottom: 12px; letter-spacing: 4px; text-shadow: 0 2px 8px rgba(0,0,0,.4); }
+  .panel {
+    display: flex; gap: 10px; align-items: center; justify-content: center;
+    margin-bottom: 14px; flex-wrap: wrap;
+  }
+  .counter {
+    background: rgba(0,0,0,.35); border-radius: 8px; padding: 6px 14px;
+    font-size: 20px; font-weight: bold; min-width: 84px; text-align: center;
+    font-variant-numeric: tabular-nums;
+  }
+  #faceBtn {
+    font-size: 26px; background: rgba(255,255,255,.15); border: 2px solid rgba(255,255,255,.4);
+    border-radius: 10px; width: 52px; height: 44px; cursor: pointer; transition: transform .1s;
+  }
+  #faceBtn:active { transform: scale(.9); }
+  .levels { display: flex; gap: 8px; margin-bottom: 14px; }
+  .levels button {
+    background: rgba(255,255,255,.12); color: #fff; border: 1px solid rgba(255,255,255,.3);
+    border-radius: 8px; padding: 6px 16px; font-size: 14px; cursor: pointer; transition: all .15s;
+  }
+  .levels button.active { background: #ffd54f; color: #333; border-color: #ffd54f; font-weight: bold; }
+  #board {
+    display: grid; gap: 2px; background: rgba(0,0,0,.3); padding: 6px;
+    border-radius: 10px; touch-action: manipulation; user-select: none;
+  }
+  .cell {
+    width: 34px; height: 34px; display: flex; align-items: center; justify-content: center;
+    background: linear-gradient(145deg, #4a72b4, #3a5f9e); border-radius: 4px;
+    font-size: 18px; font-weight: bold; cursor: pointer; transition: background .1s;
+  }
+  .cell:hover:not(.open):not(.flag) { background: linear-gradient(145deg, #5a82c4, #4a6fae); }
+  .cell.open { background: #d7e3f4; cursor: default; }
+  .cell.flag { background: linear-gradient(145deg, #4a72b4, #3a5f9e); }
+  .cell.mine { background: #e53935; }
+  .cell.mine-hit { background: #b71c1c; animation: shake .3s; }
+  @keyframes shake { 0%,100%{transform:translateX(0)} 25%{transform:translateX(-3px)} 75%{transform:translateX(3px)} }
+  .n1{color:#1976d2}.n2{color:#388e3c}.n3{color:#d32f2f}.n4{color:#7b1fa2}
+  .n5{color:#ff8f00}.n6{color:#0097a7}.n7{color:#455a64}.n8{color:#000}
+  #msg { margin-top: 14px; font-size: 18px; height: 26px; font-weight: bold; text-shadow: 0 1px 4px rgba(0,0,0,.4); }
+  .tip { margin-top: 8px; font-size: 13px; opacity: .75; }
+  @media (max-width: 480px) { .cell { width: 30px; height: 30px; font-size: 16px; } }
+</style>
+</head>
+<body>
+  <h1>💣 扫 雷</h1>
+  <div class="levels">
+    <button data-lv="easy" class="active">简单 9×9</button>
+    <button data-lv="mid">中等 16×16</button>
+    <button data-lv="hard">困难 16×30</button>
+  </div>
+  <div class="panel">
+    <div class="counter">🚩 <span id="mineCount">10</span></div>
+    <button id="faceBtn" title="重新开始">🙂</button>
+    <div class="counter">⏱ <span id="timer">0</span></div>
+  </div>
+  <div id="board"></div>
+  <div id="msg"></div>
+  <div class="tip">左键 / 点按：翻开格子 · 右键 / 长按：插旗标记</div>
+
+<script>
+const LEVELS = {
+  easy: { rows: 9,  cols: 9,  mines: 10 },
+  mid:  { rows: 16, cols: 16, mines: 40 },
+  hard: { rows: 16, cols: 30, mines: 99 }
+};
+let cfg, board, gameOver, started, flags, opened, timerId, seconds;
+
+const boardEl = document.getElementById('board');
+const mineCountEl = document.getElementById('mineCount');
+const timerEl = document.getElementById('timer');
+const faceBtn = document.getElementById('faceBtn');
+const msgEl = document.getElementById('msg');
+
+function init(level) {
+  cfg = LEVELS[level];
+  board = [];
+  gameOver = false; started = false;
+  flags = 0; opened = 0; seconds = 0;
+  clearInterval(timerId);
+  timerEl.textContent = 0;
+  faceBtn.textContent = '🙂';
+  msgEl.textContent = '';
+  mineCountEl.textContent = cfg.mines;
+  boardEl.style.gridTemplateColumns = `repeat(${cfg.cols}, auto)`;
+  boardEl.innerHTML = '';
+  for (let r = 0; r < cfg.rows; r++) {
+    board[r] = [];
+    for (let c = 0; c < cfg.cols; c++) {
+      const cell = { mine: false, open: false, flag: false, count: 0, el: document.createElement('div') };
+      cell.el.className = 'cell';
+      cell.el.dataset.r = r; cell.el.dataset.c = c;
+      cell.el.addEventListener('click', () => reveal(r, c));
+      cell.el.addEventListener('contextmenu', e => { e.preventDefault(); toggleFlag(r, c); });
+      // 手机长按插旗
+      let pressTimer = null;
+      cell.el.addEventListener('touchstart', () => {
+        pressTimer = setTimeout(() => { toggleFlag(r, c); pressTimer = 'fired'; }, 400);
+      });
+      cell.el.addEventListener('touchend', e => {
+        if (pressTimer === 'fired') { e.preventDefault(); }
+        else { clearTimeout(pressTimer); }
+        pressTimer = null;
+      });
+      boardEl.appendChild(cell.el);
+      board[r][c] = cell;
+    }
+  }
+}
+
+function placeMines(safeR, safeC) {
+  let placed = 0;
+  while (placed < cfg.mines) {
+    const r = Math.floor(Math.random() * cfg.rows);
+    const c = Math.floor(Math.random() * cfg.cols);
+    // 第一次点击的格子及周围 8 格保证安全
+    if (board[r][c].mine || (Math.abs(r - safeR) <= 1 && Math.abs(c - safeC) <= 1)) continue;
+    board[r][c].mine = true;
+    placed++;
+  }
+  for (let r = 0; r < cfg.rows; r++)
+    for (let c = 0; c < cfg.cols; c++)
+      board[r][c].count = neighbors(r, c).filter(n => n.mine).length;
+}
+
+function neighbors(r, c) {
+  const list = [];
+  for (let dr = -1; dr <= 1; dr++)
+    for (let dc = -1; dc <= 1; dc++) {
+      if (!dr && !dc) continue;
+      const nr = r + dr, nc = c + dc;
+      if (nr >= 0 && nr < cfg.rows && nc >= 0 && nc < cfg.cols) list.push(board[nr][nc]);
+    }
+  return list;
+}
+
+function startTimer() {
+  started = true;
+  timerId = setInterval(() => { seconds++; timerEl.textContent = seconds; }, 1000);
+}
+
+function reveal(r, c) {
+  if (gameOver) return;
+  const cell = board[r][c];
+  if (cell.open || cell.flag) return;
+  if (!started) { placeMines(r, c); startTimer(); }
+  if (cell.mine) return lose(r, c);
+  flood(r, c);
+  checkWin();
+}
+
+function flood(r, c) {
+  const cell = board[r][c];
+  if (cell.open || cell.flag || cell.mine) return;
+  cell.open = true;
+  opened++;
+  cell.el.classList.add('open');
+  if (cell.count > 0) {
+    cell.el.textContent = cell.count;
+    cell.el.classList.add('n' + cell.count);
+  } else {
+    neighbors(r, c).forEach(n => {
+      const nr = +n.el.dataset.r, nc = +n.el.dataset.c;
+      flood(nr, nc);
+    });
+  }
+}
+
+function toggleFlag(r, c) {
+  if (gameOver) return;
+  const cell = board[r][c];
+  if (cell.open) return;
+  cell.flag = !cell.flag;
+  cell.el.classList.toggle('flag', cell.flag);
+  cell.el.textContent = cell.flag ? '🚩' : '';
+  flags += cell.flag ? 1 : -1;
+  mineCountEl.textContent = cfg.mines - flags;
+}
+
+function lose(hr, hc) {
+  gameOver = true;
+  clearInterval(timerId);
+  faceBtn.textContent = '😵';
+  msgEl.textContent = '💥 踩到雷了！点击笑脸重来';
+  for (let r = 0; r < cfg.rows; r++)
+    for (let c = 0; c < cfg.cols; c++) {
+      const cell = board[r][c];
+      if (cell.mine) {
+        cell.el.classList.add('mine');
+        cell.el.textContent = '💣';
+      } else if (cell.flag) {
+        cell.el.textContent = '❌';
+      }
+    }
+  board[hr][hc].el.classList.add('mine-hit');
+}
+
+function checkWin() {
+  if (opened === cfg.rows * cfg.cols - cfg.mines) {
+    gameOver = true;
+    clearInterval(timerId);
+    faceBtn.textContent = '😎';
+    msgEl.textContent = `🎉 你赢了！用时 ${seconds} 秒`;
+    // 自动给所有雷插旗
+    for (let r = 0; r < cfg.rows; r++)
+      for (let c = 0; c < cfg.cols; c++) {
+        const cell = board[r][c];
+        if (cell.mine && !cell.flag) { cell.flag = true; cell.el.textContent = '🚩'; cell.el.classList.add('flag'); }
+      }
+    mineCountEl.textContent = 0;
+  }
+}
+
+document.querySelectorAll('.levels button').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.levels button').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    init(btn.dataset.lv);
+  });
+});
+faceBtn.addEventListener('click', () => {
+  const active = document.querySelector('.levels button.active').dataset.lv;
+  init(active);
+});
+
+init('easy');
+</script>
+</body>
+</html>
